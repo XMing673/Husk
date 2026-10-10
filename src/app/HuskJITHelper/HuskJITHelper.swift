@@ -2,6 +2,55 @@
 import Foundation
 import StikJIT
 
+private final class RemotePairingPortDiscovery: NSObject, NetServiceBrowserDelegate, NetServiceDelegate {
+    private let browser = NetServiceBrowser()
+    private var services: [NetService] = []
+    private var discoveredPort: Int?
+
+    static func resolve(timeout: TimeInterval = 4) -> UInt16? {
+        // NetService delegates require a running RunLoop; isolate them from the UI thread.
+        let semaphore = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var resolved: UInt16?
+        DispatchQueue.global(qos: .utility).async {
+            let discovery = RemotePairingPortDiscovery()
+            let result = discovery.run(timeout: timeout)
+            lock.lock()
+            resolved = result
+            lock.unlock()
+            semaphore.signal()
+        }
+        guard semaphore.wait(timeout: .now() + timeout + 1) == .success else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        return resolved
+    }
+
+    private func run(timeout: TimeInterval) -> UInt16? {
+        browser.delegate = self
+        browser.schedule(in: .current, forMode: .default)
+        browser.searchForServices(ofType: "_remotepairing._tcp.", inDomain: "local.")
+        let deadline = Date().addingTimeInterval(timeout)
+        while discoveredPort == nil && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))
+        }
+        browser.stop()
+        services.forEach { $0.stop() }
+        guard let port = discoveredPort, (1...65535).contains(port) else { return nil }
+        return UInt16(port)
+    }
+
+    func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
+        service.delegate = self
+        services.append(service)
+        service.resolve(withTimeout: 3)
+    }
+
+    func netServiceDidResolveAddress(_ sender: NetService) {
+        if (1...65535).contains(sender.port) { discoveredPort = sender.port }
+    }
+}
+
 /// The debugger half of Built-in StikJIT (docs/06-built-in-jit.md).
 ///
 /// A process cannot synchronously debug itself, so Husk starts this extension,
@@ -33,10 +82,15 @@ private enum HuskJITWork {
             try pairingData.write(to: pairingURL, options: .atomic)
             defer { try? manager.removeItem(at: pairingURL) }
 
+            let resolvedPort = RemotePairingPortDiscovery.resolve()
+            let port = resolvedPort ?? 49152
+            NSLog("[HuskJIT] Remote Pairing port: %u (%@)", port, resolvedPort == nil ? "fallback" : "Bonjour")
+            let configuration = StikJIT.Configuration(rsdPort: port)
+
             switch request.operation {
             case .prepare:
                 let readiness = StikJIT.prepareDevice(
-                    pairingFile: pairingURL, paths: paths,
+                    pairingFile: pairingURL, paths: paths, configuration: configuration,
                     progress: { NSLog("[HuskJIT] prepare: %@", String(describing: $0)) })
                 switch readiness {
                 case .ready(let security):
@@ -60,6 +114,7 @@ private enum HuskJITWork {
                     targetPID: targetPID,
                     pairingFile: pairingURL,
                     ddiPaths: paths,
+                    configuration: configuration,
                     script: .customBase64(scriptBase64),
                     forceScript: true,
                     preparationProgress: { NSLog("[HuskJIT] prepare: %@", String(describing: $0)) },
