@@ -51,7 +51,16 @@ jobs:
           set -euo pipefail
           brew install meson ninja pkg-config xcodegen qemu cmake autoconf automake libtool gettext
           rustup target add aarch64-apple-ios
+          # Homebrew Python is externally managed. Use a dedicated venv and
+          # ensure BOTH Meson and its cross-file Python see the same PyYAML.
+          venv="$RUNNER_TEMP/husk-python"
+          python3 -m venv "$venv"
+          "$venv/bin/python3" -m pip install --disable-pip-version-check 'PyYAML>=6,<7' meson
+          echo "$venv/bin" >> "$GITHUB_PATH"
+          export PATH="$venv/bin:$PATH"
+          python3 -c 'import sys, yaml; print("Python:", sys.executable, "PyYAML:", yaml.__version__)'
           command -v meson ninja pkg-config xcodegen qemu-img cargo
+          meson --version
           df -h .
 
       - name: Build and package from clean checkout
