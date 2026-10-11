@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   build-ipa:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 350
     steps:
       - name: Checkout patched fork
@@ -61,6 +61,26 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Show actionable errors in job summary
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Husk build failure diagnostics"
+            echo '### Last compiler / dependency errors'
+            echo '\`\`\`text'
+            if [ -f "$RUNNER_TEMP/husk-ci-build.log" ]; then
+              grep -aEi 'error:|failed|fatal:|no space left|not found|cannot find|unsupported|no such file' "$RUNNER_TEMP/husk-ci-build.log" | tail -60 || true
+              echo "--- tail ---"
+              tail -80 "$RUNNER_TEMP/husk-ci-build.log"
+            else
+              echo "Build log was not created; check earlier workflow steps."
+            fi
+            echo '\`\`\`'
+            echo '### Remaining disk space'
+            df -h .
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload build logs if failed
         if: failure()
