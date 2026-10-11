@@ -69,7 +69,7 @@ jobs:
           {
             echo "## Husk build failure diagnostics"
             echo '### Last compiler / dependency errors'
-            echo '\`\`\`text'
+            echo '```text'
             if [ -f "$RUNNER_TEMP/husk-ci-build.log" ]; then
               grep -aEi 'error:|failed|fatal:|no space left|not found|cannot find|unsupported|no such file' "$RUNNER_TEMP/husk-ci-build.log" | tail -60 || true
               echo "--- tail ---"
@@ -77,7 +77,7 @@ jobs:
             else
               echo "Build log was not created; check earlier workflow steps."
             fi
-            echo '\`\`\`'
+            echo '```'
             echo '### Remaining disk space'
             df -h .
           } | tee -a "$GITHUB_STEP_SUMMARY"
