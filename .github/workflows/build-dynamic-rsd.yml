@@ -1,0 +1,74 @@
+name: Build Husk Dynamic RSD IPA
+
+on:
+  push:
+    branches:
+      - fix/dynamic-remotepairing-port
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    runs-on: macos-26
+    timeout-minutes: 350
+    steps:
+      - name: Checkout patched fork
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+
+      - name: Toolchain and space check
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          df -h .
+          /usr/bin/python3 --version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install meson ninja pkg-config xcodegen qemu cmake autoconf automake libtool gettext
+          rustup target add aarch64-apple-ios
+          command -v meson ninja pkg-config xcodegen qemu-img cargo
+          df -h .
+
+      - name: Build and package from clean checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh
+          ./scripts/ci_build.sh "$GITHUB_WORKSPACE/build/Husk.ipa" 2>&1 | tee "$RUNNER_TEMP/husk-ci-build.log"
+          test -s build/Husk.ipa
+          test -s build/Husk.tipa
+          unzip -t build/Husk.ipa | tail -1
+          ls -lh build/Husk.{ipa,tipa}
+
+      - name: Upload Husk IPA and TrollStore package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Husk-dynamic-rsd-packages
+          path: |
+            build/Husk.ipa
+            build/Husk.tipa
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload build logs if failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Husk-build-logs
+          path: |
+            ${{ runner.temp }}/husk-ci-build.log
+            build/logs/*.log
+          if-no-files-found: ignore
+          retention-days: 7
