@@ -31,6 +31,20 @@ jobs:
           /usr/bin/python3 --version
           xcrun --sdk iphoneos --show-sdk-version
 
+      - name: Install Xcode Metal Toolchain
+        shell: bash
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          echo "Xcode: $(xcode-select -p)"
+          # Xcode 26+ distributes the Metal compiler as an optional component.
+          # Without it, WebKit ANGLE cannot compile its Metal shaders.
+          xcodebuild -downloadComponent MetalToolchain
+          echo "Metal compiler:"
+          xcrun --sdk iphoneos --find metal
+          echo "Metal library linker:"
+          xcrun --sdk iphoneos --find metallib
+
       - name: Install build dependencies
         shell: bash
         run: |
